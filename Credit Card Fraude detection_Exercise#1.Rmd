@@ -1,0 +1,155 @@
+---
+title: "Portfolio Builder Exercise #1"
+output: html_notebook
+---
+
+```{r}
+library(rsample)
+library(caret)
+library(tidyverse)
+library(dplyr)    
+library(ggplot2)  
+library(visdat)
+library(recipes) 
+
+```
+
+## The data sets
+
+* Credit Card Fraud Detection
+
+```{r}
+# access data
+#ames <- AmesHousing::make_ames()
+creditcard_data <- read.csv("data/creditcard.csv")
+
+# initial dimension
+dim(creditcard_data)
+
+# response variable
+head(creditcard_data)
+
+```
+
+
+# 1. Assess the distribution of the target / response variable.
+* target varible: Classes
+*response variable: time
+## Is the response skewed?
+```{r}
+set.seed(123) # for reproducibility
+split <- initial_split(creditcard_data, prop = 0.7)
+creditcard_train <- training(split)
+creditcard_test  <- testing(split)
+
+ggplot(creditcard_train, aes(x = Time)) + 
+  
+ geom_line(stat = "density", 
+            trim = TRUE) + 
+ 
+  geom_line(data = creditcard_test, 
+            stat = "density", 
+            trim = TRUE, col = "red")
+
+#library(moments)
+#skewness(creditcard_data$Class, na.rm = TRUE)
+```
+
+## Does applying a transformation normalize the distribution?
+
+```{r}
+creditcard_recipe <- recipe(Class ~ ., data = creditcard_train) %>%
+ step_log(all_outcomes()) 
+
+creditcard_recipe
+
+
+# Or
+recipe(Class ~ ., data = creditcard_train) %>%
+  step_YeoJohnson(all_numeric()) 
+```
+
+# 2. Assess the dataset for missingness.
+## How many observations have missing values?
+```{r}
+sum(is.na(creditcard_train))
+```
+ 
+
+# 3.Assess the variance across the features.
+## Do any features have zero variance?
+## Do any features have near-zero variance?
+```{r}
+caret::nearZeroVar(creditcard_train, saveMetrics = TRUE) %>% 
+ tibble::rownames_to_column() %>% 
+ filter(nzv)
+
+```
+
+# 4.Assess the numeric features.
+## Do some features have significant skewness?
+## Do features have a wide range of values that would benefit from standardization?
+```{r}
+creditcard_recipe %>%
+  step_center(all_numeric(), -all_outcomes()) %>%
+  step_scale(all_numeric(), -all_outcomes())
+```
+
+# 5. Assess the categorical features.
+## Are categorical levels equally spread out across the features or is “lumping” occurring?
+## Which values do you think should be one-hot or dummy encoded versus label encoded? Why?
+
+#### No , One-hot and dummy encoding are not good when: the data has a lot of categorical features
+# 6. Execute a basic feature engineering process.
+## Create and a apply a blueprint of feature engineering processes that you think will help your model improve.
+```{r}
+blueprint <- recipe(Class ~ ., data = creditcard_train) %>%
+  step_nzv(all_nominal())  %>%
+  step_center(all_numeric(), -all_outcomes()) %>%
+  step_scale(all_numeric(), -all_outcomes()) %>%
+ 
+  
+blueprint
+```
+
+## First, apply a KNN model to your data without pre-applying feature engineering processes.
+
+```{r}
+# Specify resampling plan
+cv <- trainControl(
+  method = "repeatedcv", 
+  number = 10, 
+  repeats = 5
+)
+
+# Construct grid of hyperparameter values
+hyper_grid <- expand.grid(k = seq(2, 25, by = 1))
+
+# Tune a knn model using grid search
+knn_fit2 <- train(
+  blueprint, 
+  data = creditcard_train, 
+  method = "knn", 
+  trControl = cv, 
+  tuneGrid = hyper_grid,
+  metric = "RMSE"
+)
+knn_fit2
+```
+
+
+## Now reapply the KNN model to your data that has been feature engineered.
+## Did your model performance improve?
+```{r}
+
+```
+
+
+
+
+
+
+
+
+
+
