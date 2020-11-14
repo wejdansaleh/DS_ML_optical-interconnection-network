@@ -1,0 +1,256 @@
+---
+title: "Exe#1_Optical_interconnection_network data set"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+
+```{r echo=FALSE}
+library(rsample)
+library(caret)
+library(tidyverse)
+library(dplyr)    
+library(ggplot2)  
+library(visdat)
+library(recipes) 
+library(readr)
+
+```
+#Exercise #1
+## The data sets
+
+* optical_interconnection_network data set.
+The amis from this data to predicted the maximum Channel Utilization for the network when we are given certain parameters through multiple regression.
+
+```{r echo=FALSE}
+OIN_data <- read.csv("data/optical_interconnection_network.csv",dec = ",", sep = ";" )
+#OIN_data = na.omit(OIN_data)
+clean_OIN_data <- OIN_data[,c(1:10)]
+head(clean_OIN_data)
+set.seed(123)
+OIN_data_split <- initial_split(clean_OIN_data, prop = .7)
+OIN_data_train <- training(OIN_data_split)
+OIN_data_test  <- testing(OIN_data_split)
+```
+
+# 1. Assess the dataset for missingness.
+## How many observations have missing values?
+
+```{r echo=FALSE}
+sum(is.na(OIN_data_train))
+```
+## Plot the missing values. Does there appear to be any patterns to the missing values?
+
+## How do you think the different imputation approaches would impact modeling results?
+
+```{r echo=FALSE}
+OIN_data_train %>%
+  is.na() %>%
+  reshape2::melt() %>%
+  ggplot(aes(Var2, Var1, fill = value)) + 
+    geom_raster() + 
+    coord_flip() +
+    scale_y_continuous(NULL, expand = c(0, 0)) +
+    scale_fill_grey(name = "", labels = c("Present", "Missing")) +
+    xlab("Observation") +
+    theme(axis.text.y  = element_text(size = 4))
+```
+
+
+# 2. Assess the distribution of the target / response variable.
+
+* target varible: to predict percent of time for "Channel Utilization".
+*response variable: Processor Utilization and Channel Waiting Time 
+## Is the response skewed?
+
+```{r echo=FALSE}
+
+  p5 <- ggplot(OIN_data_train, aes(x = Channel.Utilization)) +
+  geom_density(alpha = 0.7) +
+   theme_classic() +
+  theme(legend.position = c(0.8, 0.8))
+ plot(p5)
+
+```
+
+
+## Does applying a transformation normalize the distribution?
+
+```{r}
+OIN_recipe <- recipe(Channel.Utilization ~ Processor.Utilization + Channel.Waiting.Time + Input.Waiting.Time + Network.Response.Time,
+              data = OIN_data_train)
+
+
+yj_transform <- step_YeoJohnson(OIN_recipe,  all_numeric())
+yj_estimates <- prep(yj_transform, training = OIN_data_train)
+
+yj_te <- bake(yj_estimates, OIN_data_test)
+plot(density(yj_estimates$Channel.Utilization))
+
+
+```
+
+
+# 3. Assess the variance across the features.
+## Do any features have zero variance?
+## Do any features have near-zero variance?
+
+```{r echo=FALSE}
+feature_variance <- caret::nearZeroVar(OIN_data_train, saveMetrics = TRUE)
+head(feature_variance)
+```
+
+# 4. Assess the numeric features.
+## Do some features have significant skewness?
+
+```{r echo=FALSE}
+
+library(cowplot)
+ p1 <- ggplot(OIN_data_train, aes(x = Processor.Utilization)) +
+  geom_density(alpha = 0.7) + 
+  theme_classic() +
+  theme(legend.position = c(0.8, 0.8))
+  
+ p2 <- ggplot(OIN_data_train, aes(x = Channel.Waiting.Time)) +
+  geom_density(alpha = 0.7) + 
+  theme_classic() +
+  theme(legend.position = c(0.8, 0.8))
+ 
+ p3 <- ggplot(OIN_data_train, aes(x = Input.Waiting.Time)) +
+ # geom_histogram() +
+  geom_density(alpha = 0.7) +
+    theme_classic() +
+  theme(legend.position = c(0.8, 0.8))
+ 
+ p4 <- ggplot(OIN_data_train, aes(x = Network.Response.Time)) +
+  geom_density(alpha = 0.7) +
+   theme_classic() +
+  theme(legend.position = c(0.8, 0.8))
+ 
+ plot_grid(p1, p2,p3,p4)
+```
+
+
+```{r echo=FALSE}
+numeric_features <- recipe(Channel.Utilization ~ Processor.Utilization + Channel.Waiting.Time + Input.Waiting.Time + Network.Response.Time,
+              data = OIN_data_train) %>%
+ 
+  step_YeoJohnson(all_numeric()) 
+
+numeric_features
+```
+
+## Do features have a wide range of values that would benefit from standardization?
+
+```{r }
+ standardization <-  recipe(Channel.Utilization ~ Processor.Utilization + Channel.Waiting.Time + Input.Waiting.Time + Network.Response.Time,
+              data = OIN_data_train) %>%
+ 
+  step_center(all_numeric(), -all_outcomes()) %>%
+  step_scale(all_numeric(), -all_outcomes())
+ standardization 
+ 
+ 
+ 
+ #standardization <- as.data.frame(standardization)
+
+```
+
+
+# 5. Assess the categorical features.
+## Are categorical levels equally spread out across the features or is “lumping” occurring?
+## Which values do you think should be one-hot or dummy encoded versus label encoded? Why?
+
+```{r echo=FALSE}
+count_Temporal.Distribution <- table(OIN_data_train$Temporal.Distribution)
+
+count_Temporal.Distribution
+
+```
+
+
+```{r}
+count_Spatial.Distribution <- table(OIN_data_train$Spatial.Distribution)
+count_Spatial.Distribution
+
+```
+
+
+```{r}
+
+dmy <- dummyVars("Channel.Utilization ~ .", data = OIN_data_train, fullRank = T)
+dat_transformed <- data.frame(predict(dmy, newdata = OIN_data_train))
+
+glimpse(dat_transformed)
+```
+
+# 6. Execute a basic feature engineering process.
+## First, apply a KNN model to your data without pre-applying feature engineering processes.
+```{r echo=FALSE}
+
+cv <- trainControl(
+  method = "repeatedcv", 
+  number = 10, 
+  repeats = 5
+  )
+
+hyper_grid <- expand.grid(k = seq(2, 25, by = 1))
+
+knn_model <- train(
+Channel.Utilization ~ .,
+  data = OIN_data_train, 
+  method = "knn", 
+  trControl = cv, 
+  tuneGrid = hyper_grid,
+  metric = "RMSE"
+  )
+
+# 6. evaluate results
+# print model results
+knn_model
+
+```
+
+## Create and a apply a blueprint of feature engineering processes that you think will help your model improve
+```{r}
+blueprint <- recipe(Channel.Utilization ~ ., data = OIN_data_train) %>%
+  step_YeoJohnson(all_numeric()) %>%
+  step_center(all_numeric(), -all_outcomes()) %>%
+  step_scale(all_numeric(), -all_outcomes()) %>%
+  step_dummy(all_nominal(), -all_outcomes(), one_hot = TRUE)
+```
+
+## Now reapply the KNN model to your data that has been feature engineered.
+
+```{r}
+knn_fe <- train(
+  blueprint, 
+  data = OIN_data_train, 
+  method = "knn", 
+  trControl = cv, 
+  tuneGrid = hyper_grid,
+  metric = "RMSE"
+  )
+
+knn_fe
+```
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+ 
