@@ -44,7 +44,6 @@ sum(is.na(OIN_data_train))
 ```
 ## Plot the missing values. Does there appear to be any patterns to the missing values?
 
-## How do you think the different imputation approaches would impact modeling results?
 
 ```{r echo=FALSE}
 OIN_data_train %>%
@@ -61,9 +60,6 @@ OIN_data_train %>%
 
 
 # 2. Assess the distribution of the target / response variable.
-
-* target varible: to predict percent of time for "Channel Utilization".
-*response variable: Processor Utilization and Channel Waiting Time 
 ## Is the response skewed?
 
 ```{r echo=FALSE}
@@ -88,7 +84,7 @@ yj_transform <- step_YeoJohnson(OIN_recipe,  all_numeric())
 yj_estimates <- prep(yj_transform, training = OIN_data_train)
 
 yj_te <- bake(yj_estimates, OIN_data_test)
-plot(density(yj_estimates$Channel.Utilization))
+
 
 
 ```
