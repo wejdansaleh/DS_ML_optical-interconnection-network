@@ -1,0 +1,197 @@
+---
+title: "Exe#2_Optical_interconnection_network data set"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(rsample)
+library(caret)
+library(tidyverse)
+library(dplyr)    
+library(ggplot2)  
+library(visdat)
+library(recipes) 
+library(readr)
+library(vip)      # for variable importance
+```
+
+```{r echo=FALSE}
+OIN_data <- read.csv("data/optical_interconnection_network.csv",dec = ",", sep = ";" )
+#OIN_data = na.omit(OIN_data)
+clean_OIN_data <- OIN_data[,c(1:10)]
+head(clean_OIN_data)
+set.seed(123)
+OIN_data_split <- initial_split(clean_OIN_data, prop = .7)
+OIN_data_train <- training(OIN_data_split)
+OIN_data_test  <- testing(OIN_data_split)
+```
+
+# 1. Depending on the type of response variable, apply a linear or logistic regression model.
+## First, apply the model to your data without pre-applying feature engineering processes.
+```{r}
+model1 <- lm(Channel.Utilization ~ Processor.Utilization  + Channel.Waiting.Time + Input.Waiting.Time + Network.Response.Time,  data = OIN_data_train)
+summary(model1)
+```
+
+## Visualize multiple regression model
+
+```{r echo=FALSE}
+library(moonBook)
+
+
+require(ggeffects)
+require(rgl)
+plot(model1)
+
+```
+
+## Create and a apply a blueprint of feature engineering processes that you think will help your model improve.
+```{r}
+blueprint <- recipe(Channel.Utilization ~ ., data = OIN_data_train) %>%
+  step_YeoJohnson(all_numeric()) %>%
+  step_center(all_numeric(), -all_outcomes()) %>%
+  step_scale(all_numeric(), -all_outcomes()) %>%
+  step_dummy(all_nominal(), -all_outcomes(), one_hot = TRUE)
+```
+
+## Now reapply the model to your data that has been feature engineered.
+
+```{r}
+cv <- trainControl(
+  method = "repeatedcv", 
+  number = 10, 
+  repeats = 5
+  )
+hyper_grid <- expand.grid(k = seq(2, 25, by = 1))
+
+blueprint_model <- train(
+  blueprint, 
+  data = OIN_data_train, 
+  method = "knn", 
+  trControl = cv, 
+  tuneGrid = hyper_grid,
+  metric = "RMSE"
+  )
+blueprint_model
+
+```
+
+## Did your model performance improve?
+##### Yes, The *RMS* become lower than the previous model without applyed *feature engineered*.
+
+
+# 2. Apply a principal component regression model.
+## Perform a grid search over several components.
+## Identify and explain the performance of the optimal model.
+
+
+```{r}
+# Build the model on training set
+set.seed(123)
+cv_pcr <- train(
+  Channel.Utilization ~., 
+  data = OIN_data_train, 
+  method = "pcr",
+  scale = TRUE,
+  trControl = trainControl("cv", number = 10),
+  tuneLength = 10
+  )
+# Plot model RMSE vs different values of components
+plot(cv_pcr)
+# Print the best tuning parameter ncomp that
+# minimize the cross-validation error, RMSE
+cv_pcr$bestTune
+```
+
+```{r}
+# Summarize the final model
+summary(cv_pcr$finalModel)
+```
+```{r}
+
+# Model performance metrics
+
+cv_pcr$results %>%
+  filter(ncomp == as.numeric(cv_pcr$bestTune))
+```
+
+
+
+# 3.Apply a partial least squares regression model.
+## Perform a grid search over several components.
+##Identify and explain the performance of the optimal model.Apply a partial least squares regression model.
+```{r}
+set.seed(123)
+cv_pls <- train(
+  Channel.Utilization ~., 
+  data = OIN_data_train, 
+  method = "pls",
+  scale = TRUE,
+  trControl = trainControl("cv", number = 10),
+  tuneLength = 10
+  )
+# model with lowest RMSE
+cv_pls$bestTune
+
+cv_pls$results %>%
+  filter(ncomp == as.numeric(cv_pls$bestTune))
+
+# plot cross-validated RMSE
+plot(cv_pls)
+```
+
+# 4. Apply a regularized regression model.
+## Perform a grid search across alpha parameter values ranging between 0–1.
+```{r}
+X <- model.matrix(Channel.Utilization ~ ., OIN_data_train)[, -1]
+Y <- log(OIN_data_train$Channel.Utilization)
+
+hyper_grid <- expand.grid(
+  alpha = seq(0, 1, by = .25),
+  lambda = c(0.1, 10, 100, 1000, 10000)
+)
+
+set.seed(123)
+cv_glmnet <- train(
+  x = X,
+  y = Y,
+  method = "glmnet",
+  preProc = c("zv", "center", "scale"),
+  trControl = trainControl(method = "cv", number = 10),
+  tuneLength = 10
+)
+
+```
+
+## What is the optimal alpha and lambda values?
+## What is the MSE and RMSE for this optimal model?
+```{r}
+cv_glmnet$results %>%
+  filter(
+    alpha == cv_glmnet$bestTune$alpha,
+    lambda == cv_glmnet$bestTune$lambda
+  )
+```
+
+## How does it compare to your previous models?
+```{r}
+
+pred <- predict(cv_glmnet, X)
+
+# compute RMSE of transformed predicted
+RMSE(exp(pred), exp(Y))
+```
+
+
+# 5. Pick the best performing model from above.
+## Identify the most influential features for this model.
+## Plot the top 10 most influential features.
+
+```{r}
+vip(cv_glmnet, num_features = 10, geom = "point") 
+```
+
+## Do these features have positive or negative impacts on your response variable?
+##### Thefeatures have positive impacts.
+
